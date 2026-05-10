@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Connections from Tucson</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Lato:wght@300;400;700&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ocean: #0d1b2a;
+    --land: #1a2e1a;
+    --land-stroke: #2d4a2d;
+    --arc-color: #e8c97a;
+    --dot-color: #f5e6c0;
+    --tucson: #ff6b6b;
+    --card-bg: rgba(10, 18, 30, 0.97);
+    --card-border: rgba(232, 201, 122, 0.4);
+    --text-light: #f0e8d0;
+    --text-muted: #9aaa8a;
+  }
+
+  body {
+    background: var(--ocean);
+    font-family: 'Lato', sans-serif;
+    color: var(--text-light);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    padding: 18px 32px 10px;
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    background: linear-gradient(180deg, rgba(0,0,0,0.5) 0%, transparent 100%);
+    z-index: 10;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: 1.6rem;
+    font-weight: 400;
+    letter-spacing: 0.03em;
+    color: var(--arc-color);
+  }
+
+  header p {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    font-weight: 300;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  #map-container {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+
+  svg#globe {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .country {
+    fill: var(--land);
+    stroke: var(--land-stroke);
+    stroke-width: 0.4px;
+    transition: fill 0.3s;
+  }
+
+  .graticule {
+    fill: none;
+    stroke: rgba(255,255,255,0.04);
+    stroke-width: 0.5px;
+  }
+
+  .sphere {
+    fill: var(--ocean);
+  }
+
+  /* Arc paths */
+  .arc-path {
+    fill: none;
+    stroke: var(--arc-color);
+    stroke-width: 1.6px;
+    stroke-linecap: round;
+    opacity: 0;
+    cursor: pointer;
+    filter: drop-shadow(0 0 4px rgba(232,201,122,0.5));
+    transition: stroke-width 0.2s, filter 0.2s, opacity 0.2s;
+  }
+
+  .arc-path.visible {
+    opacity: 0.75;
+  }
+
+  .arc-path:hover,
+  .arc-path.hovered {
+    stroke-width: 2.8px;
+    opacity: 1;
+    filter: drop-shadow(0 0 10px rgba(232,201,122,0.9));
+  }
+
+  /* Moving dot along arc */
+  .arc-dot {
+    fill: var(--arc-color);
+    r: 3;
+    opacity: 0.9;
+    pointer-events: none;
+  }
+
+  /* City dots */
+  .city-dot {
+    cursor: pointer;
+    transition: r 0.2s;
+  }
+  .city-dot circle {
+    fill: var(--dot-color);
+    stroke: var(--arc-color);
+    stroke-width: 1.2px;
+    r: 4;
+    filter: drop-shadow(0 0 4px rgba(232,201,122,0.8));
+  }
+  .city-dot text {
+    font-family: 'Lato', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    fill: var(--text-light);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    pointer-events: none;
+    text-shadow: 0 1px 4px #000, 0 0 8px #000;
+  }
+
+  /* Tucson dot special */
+  .tucson-dot circle {
+    fill: var(--tucson);
+    stroke: #fff;
+    stroke-width: 1.5px;
+    r: 6;
+    filter: drop-shadow(0 0 6px rgba(255,107,107,0.9));
+  }
+
+  /* Tooltip card */
+  #tooltip {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.25s ease, transform 0.2s ease;
+    z-index: 100;
+    transform: translateY(6px);
+  }
+
+  #tooltip.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .tooltip-inner {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 4px;
+    overflow: hidden;
+    width: 210px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.7), 0 0 0 1px rgba(232,201,122,0.1);
+  }
+
+  .tooltip-img {
+    width: 100%;
+    height: 118px;
+    object-fit: cover;
+    display: block;
+    filter: brightness(0.88) saturate(0.9);
+  }
+
+  .tooltip-body {
+    padding: 10px 12px 12px;
+  }
+
+  .tooltip-city {
+    font-family: 'Playfair Display', serif;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--arc-color);
+    margin-bottom: 2px;
+  }
+
+  .tooltip-country {
+    font-size: 0.67rem;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+
+  .tooltip-legend {
+    font-size: 0.75rem;
+    color: var(--text-light);
+    line-height: 1.5;
+    font-weight: 300;
+  }
+
+  footer {
+    position: absolute;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.65rem;
+    color: rgba(255,255,255,0.2);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>¡Feliz día de la madre, señorita Elvira Rivera! El mundo agradece su esfuerzo!</h1>
+  <p>Presione cada ciudad para ver la leyenda</p>
+</header>
+
+<div id="map-container">
+  <svg id="globe"></svg>
+  <div id="tooltip"><div class="tooltip-inner">
+    <img class="tooltip-img" id="tt-img" src="" alt="" />
+    <div class="tooltip-body">
+      <div class="tooltip-city" id="tt-city"></div>
+      <div class="tooltip-country" id="tt-country"></div>
+      <div class="tooltip-legend" id="tt-legend"></div>
+    </div>
+  </div></div>
+</div>
+
+<footer>El efecto de Elvira Rivera en el mundo. Desde Tucson, AZ</footer>
+
+<script>
+// ─── DATA ───────────────────────────────────────────────────────────────────
+const SOURCE = {
+  name: "Tucson",
+  country: "USA",
+  lat: 32.2226,
+  lon: -110.9747,
+  label: "Tucson, AZ",
+  image: "tucson.jpg",
+  legend: "He aquí el producto de todos sus esfuerzos. Ni ellos ni usted alcanzan a dimensionar aún la magnitud del impacto positivo que han traído y traerán a las vidas de incontables personas. Y todo inicia con usted. ¡Felicitaciones por ser la mamá de sus excepcionales hijos! ¡Feliz día de la madre!"
+};
+
+const CITIES = [
+  {
+    name: "Bogotá",
+    country: "Colombia",
+    lat: 4.7110,
+    lon: -74.0721,
+    labelOffset: [8, 4],
+    image: "bogota.jpg",
+    legend: "Estas cinco personas que me acompañan en la foto son las que más gratitud tienen hacia su interminable trabajo de mamá. Para comenzar, mi Nury, mi mamá, agradece que usted haya abierto las puertas de su casa, que me haya mandado esos tamales deliciosos y que haya criado a la maravillosa mujer que es Fernanda. De una mamá a otra, usted tiene su gratitud. Mi hermana descansa sabiendo que al otro lado del hemisferio hay una mamá tan tenaz como ella, tan amorosa como ella (aunque de pronto un poco más desencajada en el sarcasmo). Juliana anhela un día sentir la gratitud que Nury siente hacia usted. Estas personas que nunca la han conocido agradecen todos sus esfuerzos como mamá. Así de extenso es el impacto de su labor."
+  },
+  {
+    name: "Bucaramanga",
+    country: "Colombia",
+    lat: 7.1193,
+    lon: -73.1227,
+    labelOffset: [8, -2],
+    image: "bucaramanga.jpg",
+    legend: "Su esfuerzo hace eco en las vidas de Sara, Gilberto, Ita, Albert, Club, Mery, Jorge y otra cantidad de personas que no caben en esta imagen. Su calidez y las puertas abiertas de su casa han dibujado sonrisas en estas personas por motivos que ellos daban por perdidos. La inmensa bondad de su hija, que es por supuesto un reflejo directo de su labor como mamá, produce esperanza y alegría en estos corazones lejanos. Gracias, señorita Elvira Rivera, por hacer feliz a mis abuelos, mis tíos y mi familia."
+  },
+  {
+    name: "Paraná",
+    country: "Brazil",
+    lat: -25.4290,
+    lon: -49.2671,
+    labelOffset: [8, 4],
+    image: "parana.jpg",
+    legend: "Esta bióloga colombiana escuchó hablar de usted (no de su hija... o bueno, también de su hija porque ella siempre sale en mis conversaciones) hace poco. Tras una discusión muy fuerte con su propia mamá acerca de lo difícil e ingrato que es iniciar una vida y una familia como migrante de primera generación, de cómo los hijos de esas relaciones crecen sin identidad, las historias acerca de una tal Elvira Rivera que hace unos tamales exquisitos, que se ríe con todo el cuerpo y que ha levantado a una maravillosa abogada y sus dos hermanos, sirvió como ejemplo de esperanza. Que sí se puede, que el camino es duro y que aunque a veces hay que dormir en el piso, el resultado es a todas luces espectacular. Angélica (que ya había decidido lo que iba a hacer) encontró fuerza en su historia de vida. Así de fuerte es su impacto como mamá."
+  },
+  {
+    name: "New York",
+    country: "USA",
+    lat: 40.7128,
+    lon: -74.0060,
+    labelOffset: [8, -2],
+    image: "newyork.jpg",
+    legend: "Aquí reside el mayor beneficiario de todos sus esfuerzos. Su papel como mamá ha hecho la vida de este habitante del estado de Nueva York mejor de lo que él jamás se atrevió a imaginar. Todos los días agradezco el fruto de sus esfuerzos y todos los días su trabajo como mamá me inspiran a esforzarme solo un poquito más."
+  },
+  {
+    name: "Konstanz",
+    country: "Germany",
+    lat: 47.6779,
+    lon: 9.1732,
+    labelOffset: [8, -2],
+    image: "konstanz.jpg",
+    legend: "Esta bióloga se llama Daniela. Ella ha encontrado en las historias acerca de las tremendas cualidades de su hija, sosiego en que es posible ser así de noble, así de determinada, así de generosa y aún así permitirse la libertad de decir que no, cambiar de sueño y adaptarse a las cosas que la vida en su impredecible devenir trae en los días buenos y en los malos. Usted hizo eso, a través de su hija la vida de esta persona que usted no conoce y que probablemente nunca conocerá, es mejor… así de profundo ha sido su impacto como mamá."
+  }
+];
+
+// ─── SVG & PROJECTION SETUP ─────────────────────────────────────────────────
+const svg = d3.select("#globe");
+const container = document.getElementById("map-container");
+
+function dims() {
+  return { w: container.clientWidth, h: container.clientHeight };
+}
+
+let { w, h } = dims();
+
+const projection = d3.geoNaturalEarth1()
+  .scale(w / 5.8)
+  .translate([w / 2, h / 2]);
+
+const path = d3.geoPath().projection(projection);
+
+const graticule = d3.geoGraticule()();
+
+const mapGroup = svg.append("g").attr("class", "map-group");
+
+// sphere background
+mapGroup.append("path")
+  .datum({ type: "Sphere" })
+  .attr("class", "sphere")
+  .attr("d", path);
+
+// graticule
+mapGroup.append("path")
+  .datum(graticule)
+  .attr("class", "graticule")
+  .attr("d", path);
+
+// countries (loaded from CDN)
+const countriesGroup = mapGroup.append("g").attr("class", "countries");
+const arcsGroup = mapGroup.append("g").attr("class", "arcs");
+const dotsGroup = mapGroup.append("g").attr("class", "dots");
+
+// ─── LOAD WORLD DATA ────────────────────────────────────────────────────────
+fetch("https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json")
+  .then(r => r.json())
+  .then(world => {
+    const countries = topojson.feature(world, world.objects.countries);
+    countriesGroup.selectAll("path")
+      .data(countries.features)
+      .join("path")
+      .attr("class", "country")
+      .attr("d", path);
+
+    drawArcsAndDots();
+    animateArcs();
+  });
+
+// ─── GREAT CIRCLE ARC GENERATOR ─────────────────────────────────────────────
+function greatCirclePoints(from, to, steps = 80) {
+  const interpolate = d3.geoInterpolate(
+    [from.lon, from.lat],
+    [to.lon, to.lat]
+  );
+  return d3.range(steps + 1).map(i => interpolate(i / steps));
+}
+
+function projectPoint([lon, lat]) {
+  return projection([lon, lat]);
+}
+
+function buildLinePath(from, to) {
+  const pts = greatCirclePoints(from, to);
+  const line = d3.line()
+    .x(d => projectPoint(d)[0])
+    .y(d => projectPoint(d)[1])
+    .curve(d3.curveCatmullRom.alpha(0.5));
+  return line(pts);
+}
+
+// ─── TOOLTIP ─────────────────────────────────────────────────────────────────
+const tooltip = document.getElementById("tooltip");
+const ttImg = document.getElementById("tt-img");
+const ttCity = document.getElementById("tt-city");
+const ttCountry = document.getElementById("tt-country");
+const ttLegend = document.getElementById("tt-legend");
+
+function showTooltip(city, evt) {
+  ttImg.src = city.image;
+  ttImg.alt = city.name;
+  ttCity.textContent = city.name;
+  ttCountry.textContent = city.country;
+  ttLegend.textContent = city.legend;
+
+  const xy = projection([city.lon, city.lat]);
+  positionTooltip(xy[0], xy[1]);
+
+  tooltip.classList.add("visible");
+}
+
+function positionTooltip(svgX, svgY) {
+  const W = 210, H = 190;
+  const cW = container.clientWidth, cH = container.clientHeight;
+  let x = svgX + 14;
+  let y = svgY - 60;
+  if (x + W > cW - 10) x = svgX - W - 14;
+  if (y < 10) y = 10;
+  if (y + H > cH - 10) y = cH - H - 10;
+  tooltip.style.left = x + "px";
+  tooltip.style.top = y + "px";
+}
+
+function hideTooltip() {
+  tooltip.classList.remove("visible");
+}
+
+// ─── DRAW ARCS & DOTS ────────────────────────────────────────────────────────
+const arcPaths = [];
+
+function drawArcsAndDots() {
+  // Draw arcs
+  CITIES.forEach((city, i) => {
+    const d = buildLinePath(SOURCE, city);
+
+    const arcPath = arcsGroup.append("path")
+      .attr("class", "arc-path")
+      .attr("d", d)
+      .attr("data-city", i);
+
+    arcPaths.push(arcPath);
+
+    // Thick invisible hit area
+    arcsGroup.append("path")
+      .attr("d", d)
+      .attr("fill", "none")
+      .attr("stroke", "transparent")
+      .attr("stroke-width", 14)
+      .style("cursor", "pointer")
+      .on("mouseenter", function(evt) {
+        arcPath.classed("hovered", true);
+        showTooltip(city, evt);
+      })
+      .on("mousemove", function(evt) {
+        const rect = container.getBoundingClientRect();
+        const xy = projection([city.lon, city.lat]);
+        positionTooltip(xy[0], xy[1]);
+      })
+      .on("mouseleave", function() {
+        arcPath.classed("hovered", false);
+        hideTooltip();
+      });
+  });
+
+  // Draw city dots
+  CITIES.forEach(city => {
+    const [cx, cy] = projection([city.lon, city.lat]);
+    const g = dotsGroup.append("g")
+      .attr("class", "city-dot")
+      .attr("transform", `translate(${cx},${cy})`);
+
+    g.append("circle").attr("r", 4);
+    g.append("text")
+      .attr("x", city.labelOffset[0])
+      .attr("y", city.labelOffset[1])
+      .text(city.name);
+  });
+
+  // Draw Tucson (source)
+  const [sx, sy] = projection([SOURCE.lon, SOURCE.lat]);
+  const tg = dotsGroup.append("g")
+    .attr("class", "city-dot tucson-dot")
+    .attr("transform", `translate(${sx},${sy})`);
+  tg.append("circle").attr("r", 6);
+  tg.append("text").attr("x", 9).attr("y", 4).text("Tucson");
+
+  tg.style("cursor", "pointer")
+    .on("mouseenter", function() { showTooltip(SOURCE); })
+    .on("mouseleave", function() { hideTooltip(); });
+}
+
+// ─── ANIMATE ARCS (stroke-dasharray reveal) ──────────────────────────────────
+function animateArcs() {
+  arcPaths.forEach((p, i) => {
+    const el = p.node();
+    const len = el.getTotalLength();
+    el.style.strokeDasharray = len;
+    el.style.strokeDashoffset = len;
+    el.style.opacity = 1;
+
+    setTimeout(() => {
+      el.style.transition = `stroke-dashoffset 1.6s cubic-bezier(0.4,0,0.2,1), opacity 0.3s`;
+      el.style.strokeDashoffset = 0;
+      el.classList.add("visible");
+    }, 400 + i * 260);
+  });
+}
+
+// ─── RESIZE ──────────────────────────────────────────────────────────────────
+window.addEventListener("resize", () => {
+  ({ w, h } = dims());
+  projection.scale(w / 5.8).translate([w / 2, h / 2]);
+
+  // Redraw all paths
+  mapGroup.select(".sphere").attr("d", path({ type: "Sphere" }));
+  mapGroup.select(".graticule").attr("d", path(graticule));
+  countriesGroup.selectAll("path").attr("d", path);
+
+  arcsGroup.selectAll("path").each(function() {
+    const i = +this.dataset.city;
+    if (!isNaN(i)) {
+      d3.select(this).attr("d", buildLinePath(SOURCE, CITIES[i]));
+    }
+  });
+
+  dotsGroup.selectAll(".city-dot").each(function(_, j) {
+    const city = j < CITIES.length ? CITIES[j] : SOURCE;
+    const [cx, cy] = projection([city.lon, city.lat]);
+    d3.select(this).attr("transform", `translate(${cx},${cy})`);
+  });
+});
+</script>
+</body>
+</html>
